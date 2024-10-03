@@ -10,10 +10,12 @@ struct ContentView: View {
     @State private var previousTask = ""
     @State private var previousElapsedTime = 0
     @State private var shouldSelectAllText = false
-    
-    private let minWidth: CGFloat = 250
-    private let maxWidth: CGFloat = 650
-    private let height: CGFloat = 60
+    @State private var frameWidth: CGFloat = 0
+    @State private var isAwake = true
+
+    private let minWidth: CGFloat = 0
+    private let maxWidth: CGFloat = 750
+    private let height: CGFloat = 40
     private let fontSize: CGFloat = 18
     private let borderWidth: CGFloat = 2
     
@@ -29,48 +31,44 @@ struct ContentView: View {
                         isEditing = false
                     })
                     .textFieldStyle(PlainTextFieldStyle())
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(.leading)
                     .focused($isFocused)
                     .onChange(of: text) { oldValue, newValue in
                         if oldValue != newValue && !isOnBreak {
                             resetTimer()
                         }
                     }
-                    .onChange(of: shouldSelectAllText) { oldValue, newValue in
-                        if newValue {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                self.selectAllText()
-                                self.shouldSelectAllText = false
-                            }
-                        }
-                    }
                 } else {
                     Text(text)
+                        .lineLimit(1)
                         .onTapGesture {
                             isEditing = true
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 isFocused = true
-                                self.selectAllText()
+                                selectAllText()
                             }
                         }
                 }
             }
+            .frame(alignment: .leading)
             .font(.system(size: fontSize))
             .foregroundColor(.white)
             
-            Spacer(minLength: 20)
+            Spacer()
                         
-            Text("\(elapsedTime) minutes")
+            Text("\(elapsedTime) mins")
                 .font(.system(size: fontSize - 4))
                 .foregroundColor(.white.opacity(0.8))
+                .frame(alignment: .leading)
             
             Spacer()
+                .frame(width: 20)
             
             HStack(spacing: 10) {
                 Button(action: {
                     if !isOnBreak {
                         logAndUpdateTask()
-                        text = "What's up next?"
+                        text = "Next up?"
                         isEditing = true
                         isFocused = true
                         shouldSelectAllText = true
@@ -102,11 +100,12 @@ struct ContentView: View {
                     Text("☕️")
                         .font(.system(size: fontSize))
                 }
+                .frame(alignment: .trailing)
                 .buttonStyle(PlainButtonStyle())
             }
         }
-        .padding()
-        .frame(width: min(max(minWidth, textWidth() + 200), maxWidth), height: height)
+        .padding(15)
+        .frame(width: calcFrameWidth(), height: height)
         .background(Color.blue.opacity(0.9))
         .cornerRadius(20)
         .overlay(
@@ -114,15 +113,37 @@ struct ContentView: View {
                 .stroke(Color.white, lineWidth: borderWidth)
         )
         .onReceive(timer) { _ in
-            elapsedTime = Int(Date().timeIntervalSince(lastUpdateTime) / 60)
+            if isAwake {
+                elapsedTime = Int(Date().timeIntervalSince(lastUpdateTime) / 60)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWorkspace.willSleepNotification)) { _ in
+            isAwake = false
+            isEditing = false
+            isFocused = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            isAwake = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                isEditing = true
+                isFocused = true
+                selectAllText()
+            }
+        }
+        .onAppear {
+            NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+                isFocused = true
+            }
         }
     }
 
-    private func textWidth() -> CGFloat {
+    private func calcFrameWidth() -> CGFloat {
         let font = NSFont.systemFont(ofSize: fontSize)
         let attributes = [NSAttributedString.Key.font: font]
         let size = (text as NSString).size(withAttributes: attributes)
-        return size.width
+        var frameWidth = max(minWidth, size.width + 200)
+        frameWidth = min(frameWidth, maxWidth)
+        return frameWidth
     }
     
     private func selectAllText() {

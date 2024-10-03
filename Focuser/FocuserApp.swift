@@ -1,14 +1,19 @@
 import SwiftUI
 import Metal
 
+class AppState: ObservableObject {
+    @Published var isAppActive = true
+}
+
 @main
 struct FocuserApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var appState = AppState()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 300, minHeight: 60)
+                .frame(minWidth: 250, minHeight: 60)
                 .background(HostingWindowFinder { window in
                     window?.styleMask.remove(.titled)
                     window?.styleMask.insert(.fullSizeContentView)
@@ -24,12 +29,17 @@ struct FocuserApp: App {
                         window?.delegate = appDelegate
                     }
                 })
+                .environmentObject(appState)
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
     }
+    
+//    NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+//        updateWindowFrame()
+//    }
 }
 
 struct HostingWindowFinder: NSViewRepresentable {
@@ -48,11 +58,16 @@ struct HostingWindowFinder: NSViewRepresentable {
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var lastFrame: NSRect?
+    var windowMonitor: Any?
+    @ObservedObject private var appState = AppState()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let window = NSApplication.shared.windows.first {
             configureWindow(window)
         }
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(applicationWillSleep(_:)), name: NSWorkspace.willSleepNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(applicationDidWake(_:)), name: NSWorkspace.didWakeNotification, object: nil)
     }
 
     func configureWindow(_ window: NSWindow) {
@@ -70,7 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         window.makeKeyAndOrderFront(nil)
 
-        NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak window] event in
+        windowMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak window] event in
             guard let window = window else { return }
             if event.type == .leftMouseUp {
                 window.level = .floating
@@ -92,6 +107,39 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func windowDidResize(_ notification: Notification) {
         if let window = notification.object as? NSWindow {
             lastFrame = window.frame
+        }
+    }
+    
+    @objc func applicationWillSleep(_ notification: Notification) {
+        appState.isAppActive = false
+    }
+    
+    @objc func applicationDidWake(_ notification: Notification) {
+        DispatchQueue.main.async {
+            self.appState.isAppActive = true
+            self.refreshWindowState()
+        }
+    }
+    
+    func refreshWindowState() {
+        if let window = NSApplication.shared.windows.first {
+            window.level = .floating
+            window.orderFront(nil)
+            window.makeKeyAndOrderFront(nil)
+        }
+    }
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        if let windowMonitor = windowMonitor {
+            NSEvent.removeMonitor(windowMonitor)
+        }
+    }
+    
+    func updateWindowFrame() {
+        if let window = NSApplication.shared.windows.first {
+            let minSize = CGSize(width: 300, height: 300)
+            window.setContentSize(minSize)
+            window.styleMask = [.resizable, .titled]
         }
     }
 }
