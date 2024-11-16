@@ -11,7 +11,7 @@ struct DropPreview: View {
 
 struct TodoInputField: View {
     @Binding var newTodoText: String
-    @FocusState private var isTodoFocused: Bool
+    @FocusState private var isFocused: Bool
     let onSubmit: () -> Void
     
     var body: some View {
@@ -19,8 +19,15 @@ struct TodoInputField: View {
             TextField("Add new todo...", text: $newTodoText)
                 .textFieldStyle(PlainTextFieldStyle())
                 .foregroundColor(.white)
-                .focused($isTodoFocused)
-                .onSubmit(onSubmit)
+                .focused($isFocused)
+                .onAppear {
+                    isFocused = true
+                }
+                .onSubmit {
+                    onSubmit()
+                    // Keep focus after submitting
+                    isFocused = true
+                }
         }
         .padding(4)
         .background(Color.white.opacity(0.1))
@@ -35,7 +42,7 @@ struct TodoListContent: View {
     let frameWidth: CGFloat
     let onDragBegan: () -> Void
     let onDragEnded: () -> Void
-    let onTaskStart: () -> Void  // New closure for starting tasks
+    let onTaskStart: () -> Void
     
     var body: some View {
         LazyVStack(spacing: 4) {
@@ -52,7 +59,7 @@ struct TodoListContent: View {
                             if let index = todoStorage.items.firstIndex(where: { $0.id == item.id }) {
                                 todoStorage.remove(at: index)
                             }
-                            onTaskStart()  // Call the new closure when starting a task
+                            onTaskStart()
                         }
                     },
                     onDelete: {
@@ -86,13 +93,12 @@ struct TodoListView: View {
     @ObservedObject var todoStorage: TodoStorage
     @Binding var showTodoList: Bool
     @State private var newTodoText = ""
-    @FocusState private var isTodoFocused: Bool
     @Binding var text: String
     let frameWidth: CGFloat
     let borderWidth: CGFloat
     let onDragBegan: () -> Void
     let onDragEnded: () -> Void
-    let onTaskStart: () -> Void  // Add this property
+    let onTaskStart: () -> Void
     
     private func addNewTodo() {
         guard !newTodoText.isEmpty else { return }
@@ -118,7 +124,7 @@ struct TodoListView: View {
                     frameWidth: frameWidth,
                     onDragBegan: onDragBegan,
                     onDragEnded: onDragEnded,
-                    onTaskStart: onTaskStart  // Pass through the closure
+                    onTaskStart: onTaskStart
                 )
             }
             .padding(10)
@@ -161,17 +167,4 @@ struct TodoListView: View {
             }
         }
     }
-}
-
-#Preview {
-    TodoListView(
-        todoStorage: TodoStorage(),
-        showTodoList: .constant(true),
-        text: .constant("Test"),
-        frameWidth: 330,
-        borderWidth: 2,
-        onDragBegan: {},
-        onDragEnded: {},
-        onTaskStart: {}  // Added the missing closure
-    )
 }

@@ -11,13 +11,15 @@ struct ContentView: View {
     @State private var frameWidth: CGFloat = 330
     @State private var isDraggingTodo = false
     @State private var showTodoList = false
-    @State private var isTimerActive = false  // New state to track if timer should be running
+    @State private var isTimerActive = false
+    @State private var isHovering = false
     
     private let minWidth: CGFloat = 250
     private let maxWidth: CGFloat = 850
     private let height: CGFloat = 24
     private let fontSize: CGFloat = 18
     private let borderWidth: CGFloat = 2
+    private let hoverDelay = 0.2
     
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
@@ -36,16 +38,36 @@ struct ContentView: View {
                     isOnBreak: $isOnBreak,
                     previousTask: $previousTask,
                     previousElapsedSeconds: $previousElapsedSeconds,
-                    isTimerActive: $isTimerActive,  // Pass the new binding
+                    isTimerActive: $isTimerActive,
                     fontSize: fontSize,
                     height: height,
                     borderWidth: borderWidth
                 )
                 .frame(width: calcFrameWidth())
-                .onTapGesture(count: 2) {
-                    withAnimation(.spring(duration: 0.3)) {
-                        showTodoList.toggle()
+                .onHover { hovering in
+                    if hovering {
+                        // Activate the app
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        
+                        // Show todo list after a short delay
+                        DispatchQueue.main.asyncAfter(deadline: .now() + hoverDelay) {
+                            if isHovering {
+                                withAnimation(.spring(duration: 0.3)) {
+                                    showTodoList = true
+                                }
+                            }
+                        }
+                    } else {
+                        // Hide todo list after a delay to prevent accidental hiding
+                        DispatchQueue.main.asyncAfter(deadline: .now() + hoverDelay) {
+                            if !isHovering && !isDraggingTodo {
+                                withAnimation(.spring(duration: 0.3)) {
+                                    showTodoList = false
+                                }
+                            }
+                        }
                     }
+                    isHovering = hovering
                 }
                 
                 if showTodoList {
@@ -63,9 +85,15 @@ struct ContentView: View {
                         onDragEnded: {
                             Task { @MainActor in
                                 isDraggingTodo = false
+                                // Check if we should hide the todo list after drag ends
+                                if !isHovering {
+                                    withAnimation(.spring(duration: 0.3)) {
+                                        showTodoList = false
+                                    }
+                                }
                             }
                         },
-                        onTaskStart: { // New closure for starting tasks from todo list
+                        onTaskStart: {
                             isTimerActive = true
                             lastUpdateTime = Date()
                             elapsedSeconds = 0
@@ -77,6 +105,9 @@ struct ContentView: View {
                             removal: .move(edge: .top).combined(with: .opacity)
                         )
                     )
+                    .onHover { hovering in
+                        isHovering = hovering
+                    }
                 }
             }
         }
@@ -122,11 +153,5 @@ struct ContentView: View {
         var frameWidth = max(minWidth, size.width + 200)
         frameWidth = min(frameWidth, maxWidth)
         return frameWidth
-    }
-}
-
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView() // Replace `ContentView` with your view name
     }
 }
