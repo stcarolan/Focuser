@@ -1,145 +1,111 @@
 import SwiftUI
-import Metal
-
-class AppState: ObservableObject {
-    @Published var isAppActive = true
-}
 
 @main
 struct FocuserApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
-
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 250, minHeight: 60)
-                .background(HostingWindowFinder { window in
-                    window?.styleMask.remove(.titled)
-                    window?.styleMask.insert(.fullSizeContentView)
-                    window?.isMovableByWindowBackground = true
-                    window?.backgroundColor = .clear
-                    window?.isOpaque = false
-                    window?.level = .floating
-                    window?.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-                    window?.contentView?.wantsLayer = true
-                    window?.contentView?.layer?.cornerRadius = 20
-                    
-                    if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
-                        window?.delegate = appDelegate
+                .background {
+                    WindowAccessor { window in
+                        configureWindow(window)
                     }
-                })
+                }
                 .environmentObject(appState)
         }
-        .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
     }
     
-//    NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-//        updateWindowFrame()
-//    }
-}
-
-struct HostingWindowFinder: NSViewRepresentable {
-    var callback: (NSWindow?) -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { [weak view] in
-            self.callback(view?.window)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    var lastFrame: NSRect?
-    var windowMonitor: Any?
-    @ObservedObject private var appState = AppState()
-    
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        if let window = NSApplication.shared.windows.first {
-            configureWindow(window)
-        }
+    private func configureWindow(_ window: NSWindow?) {
+        guard let window = window else { return }
         
-        NotificationCenter.default.addObserver(self, selector: #selector(applicationWillSleep(_:)), name: NSWorkspace.willSleepNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(applicationDidWake(_:)), name: NSWorkspace.didWakeNotification, object: nil)
-    }
-
-    func configureWindow(_ window: NSWindow) {
-        window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         window.styleMask.remove(.titled)
+        window.styleMask.insert(.fullSizeContentView)
         window.isMovableByWindowBackground = true
         window.backgroundColor = .clear
         window.isOpaque = false
-        window.hasShadow = false
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.contentView?.wantsLayer = true
+        window.contentView?.layer?.cornerRadius = 10
         
-        window.contentMinSize = NSSize(width: 250, height: 60)
-        window.contentMaxSize = NSSize(width: 650, height: 60)
-        window.setContentSize(NSSize(width: 600, height: 60))
+        let delegate = WindowDelegate()
+        window.delegate = delegate
+        
+        // Store delegate as associated object to keep it alive
+        objc_setAssociatedObject(window, "windowDelegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+    }
+}
 
-        window.makeKeyAndOrderFront(nil)
+class AppState: ObservableObject {
+    @Published var isAppActive = true
+}
 
-        windowMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak window] event in
-            guard let window = window else { return }
-            if event.type == .leftMouseUp {
-                window.level = .floating
-            } else if window.frame.intersects(NSRect(x: 0, y: NSScreen.main?.frame.height ?? 0, width: NSScreen.main?.frame.width ?? 0, height: 1)) {
-                window.level = .normal
-            }
+// Simpler window access helper
+struct WindowAccessor: NSViewRepresentable {
+    let callback: (NSWindow?) -> Void
+    
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { [weak view] in
+            callback(view?.window)
         }
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+class WindowDelegate: NSObject, NSWindowDelegate {
+    override init() {
+        super.init()
         
-        lastFrame = window.frame
+        // Set up sleep/wake notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSleep),
+            name: NSWorkspace.willSleepNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+    }
+    
+    private func windowDidMove(_ notification: NSNotification) {
+        // Marked as private to match NSWindowDelegate protocol exactly
+        guard let window = notification.object as? NSWindow else { return }
+        // Handle any post-move logic here if needed
+    }
+    
+    @objc private func handleSleep() {
+        if let window = NSApp.mainWindow {
+            window.level = .normal
+        }
+    }
+    
+    @objc private func handleWake() {
+        if let window = NSApp.mainWindow {
+            window.level = .floating
+            window.orderFront(nil)
+        }
     }
     
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
-        guard let lastFrame = lastFrame else { return frameSize }
-        let newOrigin = NSPoint(x: lastFrame.maxX - frameSize.width, y: lastFrame.minY)
-        sender.setFrameOrigin(newOrigin)
-        return frameSize
+        // Preserve window width during resize
+        var newSize = frameSize
+        newSize.height = 60  // Keep fixed height
+        return newSize
     }
     
-    func windowDidResize(_ notification: Notification) {
-        if let window = notification.object as? NSWindow {
-            lastFrame = window.frame
-        }
-    }
-    
-    @objc func applicationWillSleep(_ notification: Notification) {
-        appState.isAppActive = false
-    }
-    
-    @objc func applicationDidWake(_ notification: Notification) {
-        DispatchQueue.main.async {
-            self.appState.isAppActive = true
-            self.refreshWindowState()
-        }
-    }
-    
-    func refreshWindowState() {
-        if let window = NSApplication.shared.windows.first {
-            window.level = .floating
-            window.orderFront(nil)
-            window.makeKeyAndOrderFront(nil)
-        }
-    }
-    
-    func applicationWillTerminate(_ notification: Notification) {
-        if let windowMonitor = windowMonitor {
-            NSEvent.removeMonitor(windowMonitor)
-        }
-    }
-    
-    func updateWindowFrame() {
-        if let window = NSApplication.shared.windows.first {
-            let minSize = CGSize(width: 300, height: 300)
-            window.setContentSize(minSize)
-            window.styleMask = [.resizable, .titled]
-        }
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 }
